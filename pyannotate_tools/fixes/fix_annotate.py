@@ -87,7 +87,61 @@ class FixAnnotate(BaseFix):
         annot = self.make_annotation(node, results)
         if annot is None:
             return
+        if True:
+            self.insert_python_2_annotation(node, results, children, annot)
+        else:
+            self.insert_python_3_annotation(node, results, children, annot)
 
+    def insert_python_3_annotation(self, node, results, children, annot):
+        # TODO: This is super hacky, but it works on some examples...
+        # TODO: check for type hints already
+        # Insert Python 3.5 type hinting
+        # For reference, see lib2to3/fixes/fix_tuple_params.py in stdlib.
+        name = results['name']
+        parm_list = name.next_sibling
+        if not isinstance(parm_list, Node):
+            self.log_message("%s%d %s: Unexpected parse tree. Parameter list is of type: %s." %
+                             (self.filename, node.get_lineno(), name, type(parm_list)))
+            return
+        parms = []
+        skip = False
+        for parm in parm_list.children[1].children:
+            if skip:
+                if parm.type == token.COMMA:
+                    skip = False
+            else:
+                if parm.type == token.NAME and parm.value != 'self':
+                    parms.append(parm)
+                if parm.type == token.EQUAL:
+                    skip = True
+        parm_count = len(parms)
+        if parm_count == 0:
+            return
+        if parm_count != len(annot[0]):
+            self.log_message("%s%d Unexpected parm_count: %s: %d skipping (parameters: %s -- annotations: %s)" %
+                             (self.filename, node.get_lineno(), name, parm_count, parms, annot[0]))
+            return
+        for parm, annotation in zip(parms, annot[0]):
+            parm.value = '%s: %s' % (parm.value, annotation)
+            parm.changed()
+
+        rtn = parm_list.next_sibling
+        if not isinstance(parm_list, Node):
+            self.log_message("%s%d %s: Unexpected parse tree. First node after param_list is of type: %s." %
+                             (self.filename, node.get_lineno(), name, type(rtn)))
+            return
+        if rtn.type == token.COLON and not name.value.startswith('__'):
+            rtn.value = '-> %s:' % annot[1]
+            rtn.changed()
+
+        if FixAnnotate.counter is not None:
+            FixAnnotate.counter -= 1
+
+        # Also add 'from typing import Any' at the top if needed.
+        argtypes, restype = annot
+        self.patch_imports(argtypes + [restype], node)
+
+    def insert_python_2_annotation(self, node, results, children, annot):
         # Insert '# type: {annot}' comment.
         # For reference, see lib2to3/fixes/fix_tuple_params.py in stdlib.
         if len(children) >= 2 and children[1].type == token.INDENT:
