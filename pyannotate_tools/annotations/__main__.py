@@ -23,6 +23,8 @@ parser.add_argument('-v', '--verbose', action='store_true',
                     help="More verbose output")
 parser.add_argument('-q', '--quiet', action='store_true',
                     help="Don't show diffs")
+parser.add_argument('-t', '--type-hints', action='store_true',
+                    help="Generate Python 3.5 type hints")
 parser.add_argument('files', nargs='*',
                     help="Files and directories to update with annotations")
 
@@ -45,7 +47,7 @@ def main(args_override=None):
     # Run pass 3 with input from that variable.
     FixAnnotateJson.init_stub_json_from_data(data, args.files[0])
     fixers = ['pyannotate_tools.fixes.fix_annotate_json']
-    flags = {'print_function': args.print_function}
+    flags = {'print_function': args.print_function, 'type_hints': args.type_hints}
     rt = StdoutRefactoringTool(
         fixers=fixers,
         options=flags,

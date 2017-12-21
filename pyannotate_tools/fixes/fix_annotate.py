@@ -87,20 +87,30 @@ class FixAnnotate(BaseFix):
         annot = self.make_annotation(node, results)
         if annot is None:
             return
-        if True:
-            self.insert_python_2_annotation(node, results, children, annot)
+        if 'type_hints' in self.options and self.options['type_hints']:
+            self.insert_python_3_annotation(node, results, annot)
         else:
-            self.insert_python_3_annotation(node, results, children, annot)
+            self.insert_python_2_annotation(node, results, children, annot)
 
-    def insert_python_3_annotation(self, node, results, children, annot):
-        # TODO: This is super hacky, but it works on some examples...
-        # TODO: check for type hints already
+    def insert_python_3_annotation(self, node, results, annot):
+        """
+        Inserts Python 3.5 type hinting (PEP 484).
+
+        This implementation take a "short cut" and just modifies the parameter name to
+        append the type hint information, rather than constructing an appropriate AST.
+        Nevertheless it acheives the desired result
+
+        :param node: node in AST that represents the function
+        :param results: results passed into the transform function
+        :param annot: the annotations
+        :return: None (modifies the AST in place)
+        """
         # Insert Python 3.5 type hinting
-        # For reference, see lib2to3/fixes/fix_tuple_params.py in stdlib.
+        argtypes, restype = annot
         name = results['name']
         parm_list = name.next_sibling
         if not isinstance(parm_list, Node):
-            self.log_message("%s%d %s: Unexpected parse tree. Parameter list is of type: %s." %
+            self.log_message("%s%d %s: Unexpected AST. Parameter list is of type: %s." %
                              (self.filename, node.get_lineno(), name, type(parm_list)))
             return
         parms = []
@@ -117,28 +127,27 @@ class FixAnnotate(BaseFix):
         parm_count = len(parms)
         if parm_count == 0:
             return
-        if parm_count != len(annot[0]):
-            self.log_message("%s%d Unexpected parm_count: %s: %d skipping (parameters: %s -- annotations: %s)" %
-                             (self.filename, node.get_lineno(), name, parm_count, parms, annot[0]))
+        if parm_count != len(argtypes):
+            self.log_message("%s%d Unexpected parameter count: %s: %d skipping (parameters: %s -- annotations: %s)" %
+                             (self.filename, node.get_lineno(), name, parm_count, parms, argtypes))
             return
-        for parm, annotation in zip(parms, annot[0]):
+        for parm, annotation in zip(parms, argtypes):
             parm.value = '%s: %s' % (parm.value, annotation)
             parm.changed()
 
         rtn = parm_list.next_sibling
-        if not isinstance(parm_list, Node):
-            self.log_message("%s%d %s: Unexpected parse tree. First node after param_list is of type: %s." %
+        if isinstance(parm_list, Node):
+            if rtn.type == token.COLON and not name.value.startswith('__'):
+                rtn.value = '-> %s:' % restype
+                rtn.changed()
+        else:
+            self.log_message("%s%d %s: Unexpected AST. First node after param_list is of type: %s." %
                              (self.filename, node.get_lineno(), name, type(rtn)))
-            return
-        if rtn.type == token.COLON and not name.value.startswith('__'):
-            rtn.value = '-> %s:' % annot[1]
-            rtn.changed()
 
         if FixAnnotate.counter is not None:
             FixAnnotate.counter -= 1
 
         # Also add 'from typing import Any' at the top if needed.
-        argtypes, restype = annot
         self.patch_imports(argtypes + [restype], node)
 
     def insert_python_2_annotation(self, node, results, children, annot):
