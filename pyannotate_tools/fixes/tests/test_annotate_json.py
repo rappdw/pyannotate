@@ -314,11 +314,9 @@ class TestFixAnnotateJson(FixerTestCase):
                     yield 42
             """
         b = """\
-            from typing import Iterator
             def nop():
                 # type: () -> int
                 def gen():
-                    # type: () -> Iterator[int]
                     yield 42
             """
         self.check(a, b)

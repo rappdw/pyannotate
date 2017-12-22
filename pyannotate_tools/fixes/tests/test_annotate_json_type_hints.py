@@ -304,9 +304,8 @@ class TestFixAnnotateJson(FixerTestCase):
                     yield 42
             """
         b = """\
-            from typing import Iterator
             def nop() -> int:
-                def gen() -> Iterator[int]:
+                def gen():
                     yield 42
             """
         self.check(a, b)
@@ -544,4 +543,51 @@ class TestFixAnnotateJson(FixerTestCase):
         # Do the same test for staticmethod
         a = a.replace('classmethod', 'staticmethod')
         b = b.replace('classmethod', 'staticmethod')
+        self.check(a, b)
+
+    def test_partially_hinted(self):
+        # Static method names currently are returned without class name
+        self.setTestData(
+            [{"func_name": "to_dict",
+              "path": "<string>",
+              "line": 2,
+              "signature": {
+                  "arg_types": ["model_ner.base.SpanLabel"],
+                  "return_type": "Dict[str, Union[int, str]]"},
+              }])
+        a = """\
+            def _create_span_output(request_text, detections):
+                def to_dict(span_label: SpanLabel):
+                    return {
+                        'category': span_label.category,
+                        'start_idx': span_label.start_idx,
+                        'end_idx': span_label.end_idx
+                    }
+        
+                return {
+                    'text': request_text,
+                    'text_length': len(request_text),
+                    'detection_count': len(detections),
+                    'detections': [to_dict(x) for x in detections]
+                }
+            """
+        b = """\
+            from model_ner.base import SpanLabel
+            from typing import Dict
+            from typing import Union
+            def _create_span_output(request_text, detections):
+                def to_dict(span_label: SpanLabel) -> Dict[str, Union[int, str]]:
+                    return {
+                        'category': span_label.category,
+                        'start_idx': span_label.start_idx,
+                        'end_idx': span_label.end_idx
+                    }
+        
+                return {
+                    'text': request_text,
+                    'text_length': len(request_text),
+                    'detection_count': len(detections),
+                    'detections': [to_dict(x) for x in detections]
+                }
+            """
         self.check(a, b)

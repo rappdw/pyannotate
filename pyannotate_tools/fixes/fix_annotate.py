@@ -102,20 +102,35 @@ class FixAnnotate(BaseFix):
         if len(parm_list_children) != 3 or \
                 parm_list_children[0].type != token.LPAR or \
                 parm_list_children[2].type != token.RPAR:
-            self.log_message("%s%d Unexpected AST: Expecting '(args, ...)' got something else..." %
+            self.log_message("%s:%d: Unexpected AST: Expecting '(args, ...)' got something else..." %
                              (self.filename, node.get_lineno()))
             return parms
         if isinstance(parm_list_children[1], Node):
             skip = False
+            working_parm = None
             for parm in parm_list_children[1].children:
                 if skip:
                     if parm.type == token.COMMA:
                         skip = False
+                        if working_parm:
+                            parms.append(working_parm)
+                            working_parm = None
                 else:
                     if parm.type == token.NAME:
-                        parms.append(parm)
-                    if parm.type == token.EQUAL:
+                        working_parm = parm
+                    elif parm.type == token.COLON:
+                        # already type_hinted, we'll ignore although we could check
+                        # type equivalency...
+                        working_parm = None
                         skip = True
+                    elif parm.type == token.EQUAL:
+                        skip = True
+                    elif parm.type == token.COMMA:
+                        if working_parm:
+                            parms.append(working_parm)
+                            working_parm = None
+            if working_parm:
+                parms.append(working_parm)
         elif isinstance(parm_list_children[1], Leaf):
             parms.append(parm_list_children[1])
         return parms
@@ -138,7 +153,7 @@ class FixAnnotate(BaseFix):
         name = results['name']
         parm_list = name.next_sibling
         if not isinstance(parm_list, Node):
-            self.log_message("%s%d %s: Unexpected AST. Parameter list is of type: %s." %
+            self.log_message("%s:%d: %s: Unexpected AST. Parameter list is of type: %s." %
                              (self.filename, node.get_lineno(), name, type(parm_list)))
             return
         parms = self.get_parm_list(parm_list.children, node)
@@ -148,7 +163,7 @@ class FixAnnotate(BaseFix):
                 parms = parms[1:]
                 parm_count -= 1
             if parm_count != len(argtypes):
-                self.log_message("%s%d Unexpected parameter count: %s: %d skipping (parameters: %s -- annotations: %s)" %
+                self.log_message("%s:%d: Unexpected parameter count: %s: %d skipping (parameters: %s -- annotations: %s)" %
                                  (self.filename, node.get_lineno(), name, parm_count, parms, argtypes))
                 return
             for parm, annotation in zip(parms, argtypes):
@@ -161,7 +176,7 @@ class FixAnnotate(BaseFix):
                 rtn.value = ' -> %s:' % restype
                 rtn.changed()
         else:
-            self.log_message("%s%d %s: Unexpected AST. First node after param_list is of type: %s." %
+            self.log_message("%s:%d: %s: Unexpected AST. First node after param_list is of type: %s." %
                              (self.filename, node.get_lineno(), name, type(rtn)))
 
         if FixAnnotate.counter is not None:

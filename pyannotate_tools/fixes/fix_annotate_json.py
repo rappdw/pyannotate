@@ -120,12 +120,13 @@ def count_args(node, results):
     else:
         children = []
     # Interpret children according to the following grammar:
-    # (('*'|'**')? NAME ['=' expr] ','?)*
+    # (('*'|'**')? NAME [: TYPE]['=' expr] ','?)*
     skip = False
     previous_token_is_star = False
     for child in children:
         if skip:
-            skip = False
+            if child.type == token.COMMA:
+                skip = False
         elif isinstance(child, Leaf):
             # A single '*' indicates the rest of the arguments are keyword only
             # and shouldn't be counted as a `*`.
@@ -140,7 +141,7 @@ def count_args(node, results):
                 count += 1
                 if previous_token_is_star:
                     star = True
-            elif child.type == token.EQUAL:
+            elif child.type == token.EQUAL or child.type == token.COLON:
                 skip = True
             if child.type != token.STAR:
                 previous_token_is_star = False
@@ -203,8 +204,8 @@ class FixAnnotateJson(FixAnnotate):
         # to allow the tests to run successfully.
         datum_path = os.path.join(self.__class__.top_dir, item['path'])
         self_path = os.path.abspath(self.filename)
-        return item['func_name'] == funcname and datum_path == self_path or \
-               (item['path'] == self.filename and 'pyannotate_tools/fixes/tests' in self_path)
+        return item['func_name'] == funcname and (datum_path == self_path or \
+               (item['path'] == self.filename and 'pyannotate_tools/fixes/tests' in self_path))
 
     def get_annotation_from_stub(self, node, results, funcname):
         if not self.__class__.stub_json:
