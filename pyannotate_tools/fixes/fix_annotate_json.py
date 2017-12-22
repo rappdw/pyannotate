@@ -209,6 +209,7 @@ class FixAnnotateJson(FixAnnotate):
     def get_annotation_from_stub(self, node, results, funcname):
         if not self.__class__.stub_json:
             self.init_stub_json()
+        skipped_first = False
         data = self.__class__.stub_json
         # We are using relative paths in the JSON.
         items = [it for it in data
@@ -243,16 +244,24 @@ class FixAnnotateJson(FixAnnotate):
                         starstar = False
                     elif arg_type.startswith('*'):
                         star = False
+                type_hints = 'type_hints' in self.options and self.options['type_hints']
                 if star:
-                    arg_types.append('*Any')
+                    if type_hints:
+                        arg_types.append('Any')
+                    else:
+                        arg_types.append('*Any')
                 if starstar:
-                    arg_types.append('**Any')
+                    if type_hints:
+                        arg_types.append('Any')
+                    else:
+                        arg_types.append('**Any')
                 # Pass 1 omits the first arg iff it's named 'self' or 'cls',
                 # even if it's not a method, so insert `Any` as needed
                 # (but only if it's not actually a method).
                 if selfish and len(arg_types) == count - 1:
                     if self.is_method(node):
                         count -= 1  # Leave out the type for 'self' or 'cls'
+                        skipped_first = True
                     else:
                         arg_types.insert(0, 'Any')
                 # If after those adjustments the count is still off,
@@ -262,7 +271,7 @@ class FixAnnotateJson(FixAnnotate):
                                      (self.filename, node.get_lineno(), count, len(arg_types)))
                     return None
                 ret_type = sig['return_type']
-                arg_types = [self.update_type_names(arg_type) for arg_type in arg_types]
+                arg_types = [self.update_type_names(arg_type, type_hints) for arg_type in arg_types]
                 # Avoid common error "No return value expected"
                 if ret_type == 'None' and self.has_return_exprs(node):
                     ret_type = 'Optional[Any]'
@@ -274,12 +283,14 @@ class FixAnnotateJson(FixAnnotate):
                         ret_type = ret_type[9:-1]
                     ret_type = 'Iterator[%s]' % ret_type
                 ret_type = self.update_type_names(ret_type)
-                return arg_types, ret_type
+                return arg_types, ret_type, skipped_first
         return None
 
-    def update_type_names(self, type_str):
+    def update_type_names(self, type_str, type_hints=False):
         # Replace e.g. `List[pkg.mod.SomeClass]` with
         # `List[SomeClass]` and remember to import it.
+        if type_hints:
+            type_str = type_str.strip('*')
         return re.sub(r'[\w.]+', self.type_updater, type_str)
 
     def type_updater(self, match):
