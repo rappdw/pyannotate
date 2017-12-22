@@ -92,6 +92,34 @@ class FixAnnotate(BaseFix):
         else:
             self.insert_python_2_annotation(node, results, children, annot)
 
+    def get_parm_list(self, parm_list_children, node):
+        # we have a couple cases we expect here, in both cases, the list should begin with leaf '(' and
+        # end with leaf ')' and be length 3
+        parms = []
+        if len(parm_list_children) == 2 and parm_list_children[0].type == token.LPAR \
+                and parm_list_children[1].type == token.RPAR:
+            return parms
+        if len(parm_list_children) != 3 or \
+                parm_list_children[0].type != token.LPAR or \
+                parm_list_children[2].type != token.RPAR:
+            self.log_message("%s%d Unexpected AST: Expecting '(args, ...)' got something else..." %
+                             (self.filename, node.get_lineno()))
+            return parms
+        if isinstance(parm_list_children[1], Node):
+            skip = False
+            for parm in parm_list_children[1].children:
+                if skip:
+                    if parm.type == token.COMMA:
+                        skip = False
+                else:
+                    if parm.type == token.NAME:
+                        parms.append(parm)
+                    if parm.type == token.EQUAL:
+                        skip = True
+        elif isinstance(parm_list_children[1], Leaf):
+            parms.append(parm_list_children[1])
+        return parms
+
     def insert_python_3_annotation(self, node, results, annot):
         """
         Inserts Python 3.5 type hinting (PEP 484).
@@ -106,39 +134,31 @@ class FixAnnotate(BaseFix):
         :return: None (modifies the AST in place)
         """
         # Insert Python 3.5 type hinting
-        argtypes, restype = annot
+        argtypes, restype, skipped_first = annot
         name = results['name']
         parm_list = name.next_sibling
         if not isinstance(parm_list, Node):
             self.log_message("%s%d %s: Unexpected AST. Parameter list is of type: %s." %
                              (self.filename, node.get_lineno(), name, type(parm_list)))
             return
-        parms = []
-        skip = False
-        for parm in parm_list.children[1].children:
-            if skip:
-                if parm.type == token.COMMA:
-                    skip = False
-            else:
-                if parm.type == token.NAME and parm.value != 'self':
-                    parms.append(parm)
-                if parm.type == token.EQUAL:
-                    skip = True
+        parms = self.get_parm_list(parm_list.children, node)
         parm_count = len(parms)
-        if parm_count == 0:
-            return
-        if parm_count != len(argtypes):
-            self.log_message("%s%d Unexpected parameter count: %s: %d skipping (parameters: %s -- annotations: %s)" %
-                             (self.filename, node.get_lineno(), name, parm_count, parms, argtypes))
-            return
-        for parm, annotation in zip(parms, argtypes):
-            parm.value = '%s: %s' % (parm.value, annotation)
-            parm.changed()
+        if parm_count > 0:
+            if skipped_first:
+                parms = parms[1:]
+                parm_count -= 1
+            if parm_count != len(argtypes):
+                self.log_message("%s%d Unexpected parameter count: %s: %d skipping (parameters: %s -- annotations: %s)" %
+                                 (self.filename, node.get_lineno(), name, parm_count, parms, argtypes))
+                return
+            for parm, annotation in zip(parms, argtypes):
+                parm.value = '%s: %s' % (parm.value, annotation)
+                parm.changed()
 
         rtn = parm_list.next_sibling
         if isinstance(parm_list, Node):
             if rtn.type == token.COLON and not name.value.startswith('__'):
-                rtn.value = '-> %s:' % restype
+                rtn.value = ' -> %s:' % restype
                 rtn.changed()
         else:
             self.log_message("%s%d %s: Unexpected AST. First node after param_list is of type: %s." %
@@ -154,7 +174,7 @@ class FixAnnotate(BaseFix):
         # Insert '# type: {annot}' comment.
         # For reference, see lib2to3/fixes/fix_tuple_params.py in stdlib.
         if len(children) >= 2 and children[1].type == token.INDENT:
-            argtypes, restype = annot
+            argtypes, restype, _ = annot
             degen_str = '(...) -> %s' % restype
             short_str = '(%s) -> %s' % (', '.join(argtypes), restype)
             if (len(short_str) > 64 or len(argtypes) > 5) and len(short_str) > len(degen_str):
@@ -253,10 +273,13 @@ class FixAnnotate(BaseFix):
         stars = inferred_type = ''
         in_default = False
         at_start = True
+        skipped_first = False
+        type_hints = 'type_hints' in self.options and self.options['type_hints']
         for child in children:
             if isinstance(child, Leaf):
                 if child.value in ('*', '**'):
-                    stars += child.value
+                    if not type_hints:
+                        stars += child.value
                 elif child.type == token.NAME and not in_default:
                     if not is_method or not at_start or 'staticmethod' in decorators:
                         inferred_type = 'Any'
@@ -264,7 +287,7 @@ class FixAnnotate(BaseFix):
                         # Always skip the first argument if it's named 'self'.
                         # Always skip the first argument of a class method.
                         if  child.value == 'self' or 'classmethod' in decorators:
-                            pass
+                            skipped_first = True
                         else:
                             inferred_type = 'Any'
                 elif child.value == '=':
@@ -291,7 +314,7 @@ class FixAnnotate(BaseFix):
                     at_start = False
         if inferred_type:
             argtypes.append(stars + inferred_type)
-        return argtypes, restype
+        return argtypes, restype, skipped_first
 
     # The parse tree has a different shape when there is a single
     # decorator vs. when there are multiple decorators.
