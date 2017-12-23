@@ -172,7 +172,7 @@ class FixAnnotate(BaseFix):
 
         rtn = parm_list.next_sibling
         if isinstance(parm_list, Node):
-            if rtn.type == token.COLON and not name.value.startswith('__'):
+            if rtn.type == token.COLON:
                 rtn.value = ' -> %s:' % restype
                 rtn.changed()
         else:
