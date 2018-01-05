@@ -2,12 +2,13 @@ from __future__ import print_function
 
 import argparse
 import logging
+import os
 
 from lib2to3.main import StdoutRefactoringTool
 
 from typing import Any, Dict, List, Optional
 
-from pyannotate_tools.annotations.main import generate_annotations_json_string
+from pyannotate_tools.annotations.main import generate_annotations_json_string, save_annotations
 from pyannotate_tools.fixes.fix_annotate_json import FixAnnotateJson
 
 parser = argparse.ArgumentParser()
@@ -43,6 +44,7 @@ def main(args_override=None):
     # Run pass 2 with output into a variable.
     infile = args.type_info
     data = generate_annotations_json_string(infile)  # type: List[Any]
+    len_before_refactor = len(data)
 
     # Run pass 3 with input from that variable.
     FixAnnotateJson.init_stub_json_from_data(data, args.files[0])
@@ -62,6 +64,14 @@ def main(args_override=None):
             logging.info("(In multi-process per-file warnings are lost)")
     if not args.write:
         logging.info("NOTE: this was a dry run; use -w to write files")
+        len_after_refactor = len(data)
+        if len_before_refactor != len_after_refactor:
+            in_dir, in_file = os.path.split(infile)
+            refactored_annotations_file = os.path.join(in_dir, "refactored." + in_file)
+            logging.info("\tHowever, we noticed several input annotations that already had type_hinting.\n"
+                         "\tWe've cleaned up your input file and written the cleaned version here: \n\t\t" +
+                         refactored_annotations_file)
+            save_annotations(data, refactored_annotations_file)
 
 
 if __name__ == '__main__':

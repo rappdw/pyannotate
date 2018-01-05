@@ -57,9 +57,33 @@ def generate_annotations_json_string(source_path):
         results.append(data)
     return results
 
+def revert_annotations(data):
+    # type (List) -> List
+    results = []
+    for item in data:
+        arg_sig = ', '.join(item['signature']['arg_types'])
+        type_comment = '(%s) -> %s' % (arg_sig, item['signature']['return_type'])
+        data = {
+            'path': item['path'],
+            'line': item['line'],
+            'func_name': item['func_name'],
+            'type_comments': [
+                type_comment
+            ],
+            'samples': item['samples']
+        }
+        results.append(data)
+    return results
+
 def generate_annotations_json(source_path, target_path):
     # type: (str, str) -> None
     """Like generate_annotations_json_string() but writes JSON to a file."""
     results = generate_annotations_json_string(source_path)
     with open(target_path, 'w') as f:
         json.dump(results, f, sort_keys=True, indent=4)
+
+def save_annotations(data, target_path):
+    # type: (List, str) -> None
+    """Saves the annotations json format to a file (usually after it's been modified during refactor"""
+    with open(target_path, 'w') as f:
+        json.dump(revert_annotations(data), f, indent=4)

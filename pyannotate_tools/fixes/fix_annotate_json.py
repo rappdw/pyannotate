@@ -99,7 +99,7 @@ def get_funcname(name, node):
     return funcname
 
 def count_args(node, results):
-    # type: (Node, Dict[str, Base]) -> Tuple[int, bool, bool, bool]
+    # type: (Node, Dict[str, Base]) -> Tuple[int, bool, bool, bool, bool]
     """Count arguments and check for self and *args, **kwds.
 
     Return (selfish, count, star, starstar) where:
@@ -112,6 +112,7 @@ def count_args(node, results):
     selfish = False
     star = False
     starstar = False
+    type_hinted = False
     args = results.get('args')
     if isinstance(args, Node):
         children = args.children
@@ -145,7 +146,16 @@ def count_args(node, results):
                 skip = True
             if child.type != token.STAR:
                 previous_token_is_star = False
-    return count, selfish, star, starstar
+        elif isinstance(child, Node):
+            # explicitly handling type hinting
+            if len(child.children) == 3 and child.children[1].type == token.COLON:
+                type_hinted = True
+                if child.children[0].type == token.NAME:
+                    if count == 0:
+                        if child.children[0].value in ('self', 'cls'):
+                            selfish = True
+                    count += 1
+    return count, selfish, star, starstar, type_hinted
 
 class FixAnnotateJson(FixAnnotate):
 
@@ -194,9 +204,10 @@ class FixAnnotateJson(FixAnnotate):
         cls.top_dir, _ = crawl_up(os.path.abspath(filename))
 
     def init_stub_json(self):
-        with open(self.__class__.stub_json_file) as f:
-            data = json.load(f)
-        self.__class__.init_stub_json_from_data(data, self.filename)
+        if self.__class__.stub_json_file:
+            with open(self.__class__.stub_json_file) as f:
+                data = json.load(f)
+            self.__class__.init_stub_json_from_data(data, self.filename)
 
     def check_json_file_equivalency(self, item, funcname):
         # In at least some IDEs (pycharm) the test_annotate_json test case will
@@ -239,7 +250,14 @@ class FixAnnotateJson(FixAnnotate):
                 arg_types = sig['arg_types']
                 # Passes 1-2 don't always understand *args or **kwds,
                 # so add '*Any' or '**Any' at the end if needed.
-                count, selfish, star, starstar = count_args(node, results)
+                count, selfish, star, starstar, type_hinted = count_args(node, results)
+                if type_hinted:
+                    # code is already type_hinted...
+                    # 1) remove this item from data (so we can save an updated annotations file
+                    # as part of the process
+                    data.remove(it)
+                    # 2) return None (we won't try to update any source code)
+                    return None
                 for arg_type in arg_types:
                     if arg_type.startswith('**'):
                         starstar = False
